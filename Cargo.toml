@@ -1,0 +1,12 @@
+[package]
+name = "asap"
+version = "0.1.0"
+authors = ["ThermalSpan <russell.w.bentley@icloud.com>"]
+
+[dependencies]
+cgmath = "0.16.0"
+glium  = "0.21.0"
+aperture = { path = "../aperture-rs" }
+geoprim = { path = "../geoprim"}
+structopt = "0.2.8"
+serde_json = "1.0.18"
