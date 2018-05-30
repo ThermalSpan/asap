@@ -7,17 +7,21 @@ extern crate glium;
 extern crate aperture;
 extern crate geoprim;
 extern crate serde_json;
-
+extern crate notify;
+use std::thread;
 use glium::glutin;
 use glium::Surface;
 use cgmath::prelude::*;
 use std::time::{Duration, SystemTime};
 use std::thread::sleep;
-use std::fs::File;
+use std::fs::{File, metadata};
 use std::io::prelude::*;
 use geoprim::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
+use std::io::*;
+use notify::{Watcher, RecursiveMode, RawEvent, raw_watcher};
+use std::sync::mpsc::channel;
 
 /// A basic example
 #[derive(StructOpt, Debug)]
@@ -42,7 +46,37 @@ impl Vertex {
     }
 }
 
-fn plot_to_buffers<F> (plot: &Plot, display: &F) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u16>) where F: glium::backend::Facade  {
+
+fn get_last_mod(path: &Path) -> Option<SystemTime> {
+    // Sigh
+    // First we get the attributes...
+    let file_attributes;
+    match metadata(&path) {
+        Ok(attr) => {
+            file_attributes = attr;
+        }
+        Err(e) => {
+            println!("ERROR: unable to get file metadata for {}:\n{}", path.display(), e);
+            return None;
+        }
+    }
+
+    // Then, does the attributes have the modified time?
+    let last_mod;
+    match file_attributes.modified() {
+        Ok(time) => {
+            last_mod = time;
+        }
+        Err(e) => {
+            println!("ERROR: unable to get modified time for {}\n{}", path.display(), e);
+            return None;
+        }
+    }
+
+    Some(last_mod)
+}
+
+fn plot_to_buffers<F> (plot: &Plot, display: &F) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32>) where F: glium::backend::Facade  {
     let mut vertices = Vec::new();
     let mut linelist = Vec::new();
 
@@ -51,8 +85,8 @@ fn plot_to_buffers<F> (plot: &Plot, display: &F) -> (glium::VertexBuffer<Vertex>
         vertices.push(Vertex::from(line.p1));
         vertices.push(Vertex::from(line.p2));
         
-        linelist.push((2 * i) as u16);
-        linelist.push((2 * i + 1) as u16);
+        linelist.push((2 * i) as u32);
+        linelist.push((2 * i + 1) as u32);
     }
 
     let vertex_buffer = glium::VertexBuffer::new(display, &vertices).unwrap();
@@ -61,6 +95,26 @@ fn plot_to_buffers<F> (plot: &Plot, display: &F) -> (glium::VertexBuffer<Vertex>
         glium::index::PrimitiveType::LinesList,
         &linelist
     ).unwrap();
+
+    (vertex_buffer, index_buffer)
+}
+
+fn points_to_buffers<F> (plot: &Plot, display: &F) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32>) where F: glium::backend::Facade  {
+    let mut vertices = Vec::new();
+    let mut linelist = Vec::new();
+
+    for i in 0..plot.points.len() {
+        let p = plot.points[i];
+        vertices.push(Vertex::from(p));
+        linelist.push( i as u32);
+    }
+
+    let vertex_buffer = glium::VertexBuffer::new(display, &vertices).expect("Cant vertex buffer");
+    let index_buffer = glium::IndexBuffer::new(
+        display,
+        glium::index::PrimitiveType::Points,
+        &linelist
+    ).expect("Can't index_buffer it");
 
     (vertex_buffer, index_buffer)
 }
@@ -82,19 +136,29 @@ fn main() {
         glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None)
             .unwrap();
 
+    let mut cam = aperture::Camera::new();
     // Drawing parameters
     let params = glium::DrawParameters {
         line_width: Some(5.0),
+        point_size: Some(10.0),
+		depth: glium::draw_parameters::Depth {
+			test: glium::DepthTest::IfMoreOrEqual,
+			..Default::default()
+		},
         blend: glium::Blend::alpha_blending(),
         ..Default::default()
     };
 
-    let mut input_file = File::open(args.input).unwrap();
-    let plot: Plot = serde_json::from_reader(&input_file).unwrap();
-    let (vertex_buffer, indices) = plot_to_buffers(&plot, &display);
+    
+    
+    let input_file = File::open(&args.input).unwrap();
+    let mut reader = BufReader::new(input_file);
+    let plot: Plot = serde_json::from_reader(&mut reader).unwrap();
+    let mut linebuffers = plot_to_buffers(&plot, &display);
+    let mut pointbuffers = points_to_buffers(&plot, &display);
+	let mut lastmod = get_last_mod(&args.input).unwrap();
 
     let mut closed = false;
-    let mut cam = aperture::Camera::new();
     let fps: f32 = 60.0;
     let frame_duration_cap = Duration::from_millis(((1.0 / fps) * 1000.0) as u64);
     let mut current_time = SystemTime::now();
@@ -109,6 +173,18 @@ fn main() {
                 aperture::camera_event_handler(&mut cam, event);
             }
         });
+
+		if let Some(last_mod_time) = get_last_mod(&args.input) {
+			if last_mod_time > lastmod {
+				let input_file = File::open(&args.input).unwrap();
+                let mut reader = BufReader::new(input_file);
+                let plot: Plot = serde_json::from_reader(&mut reader).expect("Can't json it");
+                linebuffers = plot_to_buffers(&plot, &display);
+                pointbuffers = points_to_buffers(&plot, &display);
+				lastmod = last_mod_time;
+				println!("Updated plot");
+			}
+		}
 
         let new_time = SystemTime::now();
         let frame_time = current_time.elapsed().unwrap();
@@ -136,13 +212,30 @@ fn main() {
         // Clear the screen, draw, and swap the buffers
         target
             .draw(
-                &vertex_buffer,
-                &indices,
+                &linebuffers.0,
+                &linebuffers.1,
                 &shader_program,
                 &uniforms,
                 &params,
             )
             .unwrap();
+
+        let uniforms_p = uniform!{
+            object_transform: world_transform,
+            u_color: [0.6, 0.0, 0.17, 1.0f32]
+        };
+
+        // Clear the screen, draw, and swap the buffers
+        target
+            .draw(
+                &pointbuffers.0,
+                &pointbuffers.1,
+                &shader_program,
+                &uniforms_p,
+                &params,
+            )
+            .unwrap();
+
 
         // Here we limit the framerate to avoid consuming uneeded CPU time
         let elapsed = current_time.elapsed().unwrap();
