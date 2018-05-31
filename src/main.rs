@@ -8,6 +8,9 @@ extern crate aperture;
 extern crate geoprim;
 extern crate serde_json;
 extern crate notify;
+extern crate bincode;
+
+use bincode::deserialize_from;
 use std::thread;
 use glium::glutin;
 use glium::Surface;
@@ -153,7 +156,7 @@ fn main() {
     
     let input_file = File::open(&args.input).unwrap();
     let mut reader = BufReader::new(input_file);
-    let plot: Plot = serde_json::from_reader(&mut reader).unwrap();
+    let plot: Plot = deserialize_from(&mut reader).unwrap();
     let mut linebuffers = plot_to_buffers(&plot, &display);
     let mut pointbuffers = points_to_buffers(&plot, &display);
 	let mut lastmod = get_last_mod(&args.input).unwrap();
