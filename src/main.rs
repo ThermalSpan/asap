@@ -11,7 +11,6 @@ extern crate notify;
 extern crate bincode;
 
 use bincode::deserialize_from;
-use std::thread;
 use glium::glutin;
 use glium::Surface;
 use cgmath::prelude::*;
@@ -45,44 +44,6 @@ impl Vertex {
     fn from(p: Point) -> Vertex {
         Vertex { position: [p.x, p.y, p.z] }
     }
-}
-
-
-fn get_last_mod(path: &Path) -> Option<SystemTime> {
-    // Sigh
-    // First we get the attributes...
-    let file_attributes;
-    match metadata(&path) {
-        Ok(attr) => {
-            file_attributes = attr;
-        }
-        Err(e) => {
-            println!(
-                "ERROR: unable to get file metadata for {}:\n{}",
-                path.display(),
-                e
-            );
-            return None;
-        }
-    }
-
-    // Then, does the attributes have the modified time?
-    let last_mod;
-    match file_attributes.modified() {
-        Ok(time) => {
-            last_mod = time;
-        }
-        Err(e) => {
-            println!(
-                "ERROR: unable to get modified time for {}\n{}",
-                path.display(),
-                e
-            );
-            return None;
-        }
-    }
-
-    Some(last_mod)
 }
 
 fn plot_to_buffers<F>(
@@ -167,13 +128,18 @@ fn main() {
     };
 
 
+    // Create a channel to receive the events.
+    let (event_sender, event_reciever) = channel();
+    let mut watcher = notify::watcher(event_sender, Duration::from_millis(500)).unwrap();
+    watcher
+        .watch(&args.input, notify::RecursiveMode::NonRecursive)
+        .unwrap();
 
     let input_file = File::open(&args.input).unwrap();
     let mut reader = BufReader::new(input_file);
     let plot: Plot = deserialize_from(&mut reader).unwrap();
     let mut linebuffers = plot_to_buffers(&plot, &display);
     let mut pointbuffers = points_to_buffers(&plot, &display);
-    let mut lastmod = get_last_mod(&args.input).unwrap();
 
     let mut closed = false;
     let fps: f32 = 60.0;
@@ -191,15 +157,19 @@ fn main() {
             }
         });
 
-        if let Some(last_mod_time) = get_last_mod(&args.input) {
-            if last_mod_time > lastmod {
-                let input_file = File::open(&args.input).unwrap();
-                let mut reader = BufReader::new(input_file);
-                let plot: Plot = serde_json::from_reader(&mut reader).expect("Can't json it");
-                linebuffers = plot_to_buffers(&plot, &display);
-                pointbuffers = points_to_buffers(&plot, &display);
-                lastmod = last_mod_time;
-                println!("Updated plot");
+
+
+        while let Ok(event) = event_reciever.try_recv() {
+            match event {
+                notify::DebouncedEvent::Write(p) |
+                notify::DebouncedEvent::Create(p) => {
+                    let input_file = File::open(&p).unwrap();
+                    let mut reader = BufReader::new(input_file);
+                    let plot: Plot = deserialize_from(&mut reader).expect("Can't deser it");
+                    linebuffers = plot_to_buffers(&plot, &display);
+                    pointbuffers = points_to_buffers(&plot, &display);
+                }
+                _ => (),
             }
         }
 
