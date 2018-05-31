@@ -32,7 +32,7 @@ use std::sync::mpsc::channel;
 struct Args {
     /// Files to process
     #[structopt(name = "FILE", parse(from_os_str))]
-    input: PathBuf
+    input: PathBuf,
 }
 
 #[derive(Copy, Clone)]
@@ -43,9 +43,7 @@ implement_vertex!(Vertex, position);
 
 impl Vertex {
     fn from(p: Point) -> Vertex {
-        Vertex {
-            position: [p.x, p.y, p.z]
-        }
+        Vertex { position: [p.x, p.y, p.z] }
     }
 }
 
@@ -59,7 +57,11 @@ fn get_last_mod(path: &Path) -> Option<SystemTime> {
             file_attributes = attr;
         }
         Err(e) => {
-            println!("ERROR: unable to get file metadata for {}:\n{}", path.display(), e);
+            println!(
+                "ERROR: unable to get file metadata for {}:\n{}",
+                path.display(),
+                e
+            );
             return None;
         }
     }
@@ -71,7 +73,11 @@ fn get_last_mod(path: &Path) -> Option<SystemTime> {
             last_mod = time;
         }
         Err(e) => {
-            println!("ERROR: unable to get modified time for {}\n{}", path.display(), e);
+            println!(
+                "ERROR: unable to get modified time for {}\n{}",
+                path.display(),
+                e
+            );
             return None;
         }
     }
@@ -79,7 +85,13 @@ fn get_last_mod(path: &Path) -> Option<SystemTime> {
     Some(last_mod)
 }
 
-fn plot_to_buffers<F> (plot: &Plot, display: &F) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32>) where F: glium::backend::Facade  {
+fn plot_to_buffers<F>(
+    plot: &Plot,
+    display: &F,
+) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32>)
+where
+    F: glium::backend::Facade,
+{
     let mut vertices = Vec::new();
     let mut linelist = Vec::new();
 
@@ -87,37 +99,39 @@ fn plot_to_buffers<F> (plot: &Plot, display: &F) -> (glium::VertexBuffer<Vertex>
         let line = plot.lines[i];
         vertices.push(Vertex::from(line.p1));
         vertices.push(Vertex::from(line.p2));
-        
+
         linelist.push((2 * i) as u32);
         linelist.push((2 * i + 1) as u32);
     }
 
     let vertex_buffer = glium::VertexBuffer::new(display, &vertices).unwrap();
-    let index_buffer = glium::IndexBuffer::new(
-        display,
-        glium::index::PrimitiveType::LinesList,
-        &linelist
-    ).unwrap();
+    let index_buffer =
+        glium::IndexBuffer::new(display, glium::index::PrimitiveType::LinesList, &linelist)
+            .unwrap();
 
     (vertex_buffer, index_buffer)
 }
 
-fn points_to_buffers<F> (plot: &Plot, display: &F) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32>) where F: glium::backend::Facade  {
+fn points_to_buffers<F>(
+    plot: &Plot,
+    display: &F,
+) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32>)
+where
+    F: glium::backend::Facade,
+{
     let mut vertices = Vec::new();
     let mut linelist = Vec::new();
 
     for i in 0..plot.points.len() {
         let p = plot.points[i];
         vertices.push(Vertex::from(p));
-        linelist.push( i as u32);
+        linelist.push(i as u32);
     }
 
     let vertex_buffer = glium::VertexBuffer::new(display, &vertices).expect("Cant vertex buffer");
-    let index_buffer = glium::IndexBuffer::new(
-        display,
-        glium::index::PrimitiveType::Points,
-        &linelist
-    ).expect("Can't index_buffer it");
+    let index_buffer =
+        glium::IndexBuffer::new(display, glium::index::PrimitiveType::Points, &linelist)
+            .expect("Can't index_buffer it");
 
     (vertex_buffer, index_buffer)
 }
@@ -144,22 +158,22 @@ fn main() {
     let params = glium::DrawParameters {
         line_width: Some(5.0),
         point_size: Some(10.0),
-		depth: glium::draw_parameters::Depth {
-			test: glium::DepthTest::IfMoreOrEqual,
-			..Default::default()
-		},
+        depth: glium::draw_parameters::Depth {
+            test: glium::DepthTest::IfMoreOrEqual,
+            ..Default::default()
+        },
         blend: glium::Blend::alpha_blending(),
         ..Default::default()
     };
 
-    
-    
+
+
     let input_file = File::open(&args.input).unwrap();
     let mut reader = BufReader::new(input_file);
     let plot: Plot = deserialize_from(&mut reader).unwrap();
     let mut linebuffers = plot_to_buffers(&plot, &display);
     let mut pointbuffers = points_to_buffers(&plot, &display);
-	let mut lastmod = get_last_mod(&args.input).unwrap();
+    let mut lastmod = get_last_mod(&args.input).unwrap();
 
     let mut closed = false;
     let fps: f32 = 60.0;
@@ -177,22 +191,22 @@ fn main() {
             }
         });
 
-		if let Some(last_mod_time) = get_last_mod(&args.input) {
-			if last_mod_time > lastmod {
-				let input_file = File::open(&args.input).unwrap();
+        if let Some(last_mod_time) = get_last_mod(&args.input) {
+            if last_mod_time > lastmod {
+                let input_file = File::open(&args.input).unwrap();
                 let mut reader = BufReader::new(input_file);
                 let plot: Plot = serde_json::from_reader(&mut reader).expect("Can't json it");
                 linebuffers = plot_to_buffers(&plot, &display);
                 pointbuffers = points_to_buffers(&plot, &display);
-				lastmod = last_mod_time;
-				println!("Updated plot");
-			}
-		}
+                lastmod = last_mod_time;
+                println!("Updated plot");
+            }
+        }
 
         let new_time = SystemTime::now();
         let frame_time = current_time.elapsed().unwrap();
-        let elapsed_millis =
-                    (1000 * frame_time.as_secs() + frame_time.subsec_millis() as u64) as f32;
+        let elapsed_millis = (1000 * frame_time.as_secs() + frame_time.subsec_millis() as u64) as
+            f32;
         current_time = new_time;
 
         let (window_width, window_height) = {
@@ -206,8 +220,9 @@ fn main() {
 
         // A weird yellow background
         target.clear_color(0.0, 0.0, 0.0, 0.0);
-        
-        let uniforms = uniform!{
+
+        let uniforms =
+            uniform!{
             object_transform: world_transform,
             u_color: [1.0, 1.0, 1.0, 1.0f32]
         };
@@ -223,7 +238,8 @@ fn main() {
             )
             .unwrap();
 
-        let uniforms_p = uniform!{
+        let uniforms_p =
+            uniform!{
             object_transform: world_transform,
             u_color: [0.6, 0.0, 0.17, 1.0f32]
         };
