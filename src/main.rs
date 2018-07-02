@@ -1,29 +1,28 @@
-
 #[macro_use]
 extern crate structopt;
 extern crate cgmath;
 #[macro_use]
 extern crate glium;
 extern crate aperture;
-extern crate geoprim;
-extern crate serde_json;
-extern crate notify;
 extern crate bincode;
+extern crate geoprim;
+extern crate notify;
+extern crate serde_json;
 
 use bincode::deserialize_from;
+use cgmath::prelude::*;
+use geoprim::*;
 use glium::glutin;
 use glium::Surface;
-use cgmath::prelude::*;
-use std::time::{Duration, SystemTime};
-use std::thread::sleep;
-use std::fs::{File, metadata};
+use notify::{raw_watcher, RawEvent, RecursiveMode, Watcher};
+use std::fs::{metadata, File};
 use std::io::prelude::*;
-use geoprim::*;
-use std::path::{Path, PathBuf};
-use structopt::StructOpt;
 use std::io::*;
-use notify::{Watcher, RecursiveMode, RawEvent, raw_watcher};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
+use std::thread::sleep;
+use std::time::{Duration, SystemTime};
+use structopt::StructOpt;
 
 /// A basic example
 #[derive(StructOpt, Debug)]
@@ -42,7 +41,9 @@ implement_vertex!(Vertex, position);
 
 impl Vertex {
     fn from(p: Point) -> Vertex {
-        Vertex { position: [p.x, p.y, p.z] }
+        Vertex {
+            position: [p.x, p.y, p.z],
+        }
     }
 }
 
@@ -127,7 +128,6 @@ fn main() {
         ..Default::default()
     };
 
-
     // Create a channel to receive the events.
     let (event_sender, event_reciever) = channel();
     let mut watcher = notify::watcher(event_sender, Duration::from_millis(500)).unwrap();
@@ -149,7 +149,10 @@ fn main() {
         let mut target = display.draw();
         // listing the events produced by application and waiting to be received
         events_loop.poll_events(|ev| match ev {
-            glutin::Event::WindowEvent { event: glutin::WindowEvent::Closed, .. } => {
+            glutin::Event::WindowEvent {
+                event: glutin::WindowEvent::Closed,
+                ..
+            } => {
                 closed = true;
             }
             event => {
@@ -157,12 +160,9 @@ fn main() {
             }
         });
 
-
-
         while let Ok(event) = event_reciever.try_recv() {
             match event {
-                notify::DebouncedEvent::Write(p) |
-                notify::DebouncedEvent::Create(p) => {
+                notify::DebouncedEvent::Write(p) | notify::DebouncedEvent::Create(p) => {
                     let input_file = File::open(&p).unwrap();
                     let mut reader = BufReader::new(input_file);
                     let plot: Plot = deserialize_from(&mut reader).expect("Can't deser it");
@@ -175,8 +175,8 @@ fn main() {
 
         let new_time = SystemTime::now();
         let frame_time = current_time.elapsed().unwrap();
-        let elapsed_millis = (1000 * frame_time.as_secs() + frame_time.subsec_millis() as u64) as
-            f32;
+        let elapsed_millis =
+            (1000 * frame_time.as_secs() + frame_time.subsec_millis() as u64) as f32;
         current_time = new_time;
 
         let (window_width, window_height) = {
@@ -191,8 +191,7 @@ fn main() {
         // A weird yellow background
         target.clear_color(0.0, 0.0, 0.0, 0.0);
 
-        let uniforms =
-            uniform!{
+        let uniforms = uniform!{
             object_transform: world_transform,
             u_color: [1.0, 1.0, 1.0, 1.0f32]
         };
@@ -208,8 +207,7 @@ fn main() {
             )
             .unwrap();
 
-        let uniforms_p =
-            uniform!{
+        let uniforms_p = uniform!{
             object_transform: world_transform,
             u_color: [0.6, 0.0, 0.17, 1.0f32]
         };
@@ -224,7 +222,6 @@ fn main() {
                 &params,
             )
             .unwrap();
-
 
         // Here we limit the framerate to avoid consuming uneeded CPU time
         let elapsed = current_time.elapsed().unwrap();
